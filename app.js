@@ -355,18 +355,30 @@ function householdRef() {
 
 async function savePiece(piece) {
   const { _ref, ...data } = piece;
-  // set avec merge:true pour ne pas écraser d'autres champs
   await householdRef().collection('pieces').doc(piece.id).set(data, { merge: false });
+  // Mettre à jour le cache local immédiatement
+  const idx = pieces.findIndex(p => p.id === piece.id);
+  if (idx !== -1) {
+    pieces[idx] = { ...pieces[idx], ...data };
+  } else {
+    pieces.push({ ...data });
+  }
+  buildFilters();
+  render();
 }
 
 async function updatePieceElements(pieceId, elements) {
-  console.log('[Firestore] updatePieceElements', pieceId, elements.length, 'éléments');
   try {
     await householdRef().collection('pieces').doc(pieceId).update({ elements });
-    console.log('[Firestore] updatePieceElements OK');
+    // Mettre à jour le cache local immédiatement sans attendre onSnapshot
+    const idx = pieces.findIndex(p => p.id === pieceId);
+    if (idx !== -1) {
+      pieces[idx] = { ...pieces[idx], elements };
+      render();
+    }
   } catch(e) {
     console.error('[Firestore] updatePieceElements ERREUR:', e.code, e.message);
-    toast('Erreur Firestore : ' + e.message);
+    toast('Erreur : ' + e.message);
     throw e;
   }
 }
