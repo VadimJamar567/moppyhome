@@ -522,18 +522,17 @@ function render() {
         </div>`;
       });
 
-      if (elHtml) {
-        pieceHtml += `<div class="element-group">
-          <div class="element-label">
-            <span class="element-label-text">${el.name}</span>
-            <div class="element-actions">
-              <button class="btn-icon sm" onclick="openAddTask('${piece.id}','${el.id}')">+ tâche</button>
-              <button class="btn-icon danger" onclick="deleteElement('${piece.id}','${el.id}')">✕</button>
-            </div>
+      // Toujours afficher l'élément, même sans tâches
+      pieceHtml += `<div class="element-group">
+        <div class="element-label">
+          <span class="element-label-text">${el.name}</span>
+          <div class="element-actions">
+            <button class="btn-icon sm" onclick="openAddTask('${piece.id}','${el.id}')">+ tâche</button>
+            <button class="btn-icon danger" onclick="deleteElement('${piece.id}','${el.id}')">✕</button>
           </div>
-          ${elHtml}
-        </div>`;
-      }
+        </div>
+        ${elHtml || '<div style="padding:0.5rem 1rem;font-size:0.75rem;color:var(--text3)">Aucune tâche — clique + tâche pour en ajouter</div>'}
+      </div>`;
     });
 
     totalCount += pieceTotal;
@@ -558,10 +557,12 @@ function render() {
     </div>`;
   });
 
+  const scrollY = window.scrollY;
   document.getElementById('root').innerHTML = html || '<div class="empty">Aucune tâche trouvée</div>';
   document.getElementById('statTotal').textContent = totalCount;
   document.getElementById('statDone').textContent  = doneCount;
   document.getElementById('statLate').textContent  = lateCount;
+  window.scrollTo(0, scrollY);
 }
 
 function buildFilters() {
