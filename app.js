@@ -417,7 +417,8 @@ async function toggleTask(pieceId, elId, taskId) {
 }
 
 async function toggleCollapse(id) {
-  ui.collapsed[id] = ui.collapsed[id] === false ? true : false;
+  // true = fermé, undefined/false = ouvert
+  ui.collapsed[id] = !ui.collapsed[id];
   render();
 }
 
@@ -539,7 +540,7 @@ function render() {
     doneCount  += pieceDone;
 
     const pct = pieceTotal > 0 ? Math.round((pieceDone / pieceTotal) * 100) : 0;
-    const isOpen = ui.collapsed[piece.id] !== false;
+    const isOpen = !ui.collapsed[piece.id]; // true dans collapsed = fermé
 
     html += `<div class="piece-card">
       <div class="piece-header" onclick="toggleCollapse('${piece.id}')">
