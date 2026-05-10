@@ -293,37 +293,42 @@ function unsubscribeAll() {
 }
 
 // ============================================================
+// FIRESTORE — RÉFÉRENCE UNIQUE
+// ============================================================
+const HOUSEHOLD = () => db.collection('households').doc('moppyhome');
+const PIECES    = () => HOUSEHOLD().collection('pieces');
+const CHECKS    = () => HOUSEHOLD().collection('checks');
+
+// ============================================================
 // INIT APP
 // ============================================================
 async function initApp() {
   updateUserUI();
 
-  // Firestore — référence au document partagé (même doc pour les 2 users)
-  // Structure : /households/moppyhome/pieces + /households/moppyhome/checks
-  const householdRef = db.collection('households').doc('moppyhome');
-
   // Initialiser les données si premier lancement
-  const snap = await householdRef.get();
+  const snap = await HOUSEHOLD().get();
   if (!snap.exists) {
-    await householdRef.set({ createdAt: Date.now() });
-    // Charger les pièces par défaut
+    await HOUSEHOLD().set({ createdAt: Date.now() });
     const batch = db.batch();
-    DEFAULT_DATA.forEach(piece => {
-      const ref = householdRef.collection('pieces').doc(piece.id);
-      batch.set(ref, { ...piece, order: DEFAULT_DATA.indexOf(piece) });
+    DEFAULT_DATA.forEach((piece, i) => {
+      batch.set(PIECES().doc(piece.id), { ...piece, order: i });
     });
     await batch.commit();
   }
 
   // Écoute temps réel — pièces
-  unsubPieces = householdRef.collection('pieces').orderBy('order').onSnapshot(snap => {
-    pieces = snap.docs.map(d => ({ ...d.data(), _ref: d.ref }));
+  unsubPieces = PIECES().orderBy('order').onSnapshot(snap => {
+    pieces = snap.docs.map(d => d.data());
+    console.log('[onSnapshot] pièces reçues:', pieces.length, pieces.map(p => p.name + '(' + (p.elements||[]).length + 'el)'));
     buildFilters();
     render();
+  }, err => {
+    console.error('[onSnapshot] erreur pièces:', err);
+    toast('Erreur synchro : ' + err.message);
   });
 
-  // Écoute temps réel — checks (qui a fait quoi et quand)
-  unsubChecks = householdRef.collection('checks').onSnapshot(snap => {
+  // Écoute temps réel — checks
+  unsubChecks = CHECKS().onSnapshot(snap => {
     checks = {};
     snap.docs.forEach(d => { checks[d.id] = d.data(); });
     render();
@@ -346,16 +351,9 @@ async function initApp() {
   }
 }
 
-// ============================================================
-// FIRESTORE — HELPERS CRUD
-// ============================================================
-function householdRef() {
-  return db.collection('households').doc('moppyhome');
-}
-
 async function savePiece(piece) {
   const { _ref, ...data } = piece;
-  await householdRef().collection('pieces').doc(piece.id).set(data, { merge: false });
+  await PIECES().doc(piece.id).set(data, { merge: false });
   // Mettre à jour le cache local immédiatement
   const idx = pieces.findIndex(p => p.id === piece.id);
   if (idx !== -1) {
@@ -369,7 +367,7 @@ async function savePiece(piece) {
 
 async function updatePieceElements(pieceId, elements) {
   try {
-    await householdRef().collection('pieces').doc(pieceId).update({ elements });
+    await PIECES().doc(pieceId).update({ elements });
     // Mettre à jour le cache local immédiatement sans attendre onSnapshot
     const idx = pieces.findIndex(p => p.id === pieceId);
     if (idx !== -1) {
@@ -384,14 +382,14 @@ async function updatePieceElements(pieceId, elements) {
 }
 
 async function deletePieceDoc(pieceId) {
-  await householdRef().collection('pieces').doc(pieceId).delete();
+  await PIECES().doc(pieceId).delete();
 }
 
 async function saveCheck(taskId, data) {
   if (data === null) {
-    await householdRef().collection('checks').doc(taskId).delete();
+    await CHECKS().doc(taskId).delete();
   } else {
-    await householdRef().collection('checks').doc(taskId).set(data);
+    await CHECKS().doc(taskId).set(data);
   }
 }
 
