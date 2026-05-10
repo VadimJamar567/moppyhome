@@ -317,8 +317,8 @@ async function initApp() {
   }
 
   // Écoute temps réel — pièces
-  unsubPieces = PIECES().orderBy('order').onSnapshot(snap => {
-    pieces = snap.docs.map(d => d.data());
+  unsubPieces = PIECES().onSnapshot(snap => {
+    pieces = snap.docs.map(d => d.data()).sort((a, b) => (a.order ?? 999) - (b.order ?? 999));
     console.log('[onSnapshot] pièces reçues:', pieces.length, pieces.map(p => p.name + '(' + (p.elements||[]).length + 'el)'));
     buildFilters();
     render();
