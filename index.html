@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="theme-color" content="#ffffff">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="MoppyHome">
+  <title>MoppyHome</title>
+  <link rel="manifest" href="manifest.json">
+  <link rel="apple-touch-icon" href="icons/icon-192.png">
+  <link rel="stylesheet" href="style.css">
+
+  <!-- Firebase SDK -->
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-messaging-compat.js"></script>
+</head>
+<body>
+
+<!-- ══ ÉCRAN DE CONNEXION ══ -->
+<div id="authScreen" class="auth-screen">
+  <div class="auth-card">
+    <div class="auth-logo">🏠</div>
+    <h1 class="auth-title">Moppy<span>Home</span></h1>
+    <p class="auth-sub">Gestion des tâches ménagères</p>
+
+    <div class="auth-form">
+      <div class="modal-field">
+        <label>Adresse e-mail</label>
+        <input type="email" id="authEmail" placeholder="vadim@email.com" autocomplete="email">
+      </div>
+      <div class="modal-field">
+        <label>Mot de passe</label>
+        <input type="password" id="authPassword" placeholder="••••••••" autocomplete="current-password">
+      </div>
+      <div class="auth-error hidden" id="authError"></div>
+      <button class="btn btn-primary" id="btnLogin" onclick="login()">Se connecter</button>
+      <button class="btn btn-secondary" id="btnRegister" onclick="register()">Créer un compte</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══ APP PRINCIPALE ══ -->
+<div id="appScreen" style="display:none">
+
+  <header class="app-header">
+    <div class="header-top">
+      <span class="app-title">Moppy<span>Home</span></span>
+      <div style="display:flex;gap:8px;align-items:center">
+        <div class="user-switcher" id="userBadge">
+          <div class="user-avatar" id="userAvatar">?</div>
+          <span class="user-name" id="userName">...</span>
+        </div>
+        <button class="btn-icon" onclick="logout()" title="Déconnexion" style="font-size:1.1rem">⏻</button>
+      </div>
+    </div>
+    <div class="search-bar">
+      <span class="search-icon">⌕</span>
+      <input type="text" id="searchInput" placeholder="Rechercher une tâche…">
+    </div>
+    <div class="filter-scroll" id="filterBar"></div>
+  </header>
+
+  <!-- Bannière notifications -->
+  <div class="notif-banner hidden" id="notifBanner" onclick="requestNotifPermission()">
+    <span>🔔 Activer les notifications pour les rappels</span>
+    <span onclick="event.stopPropagation();dismissNotifBanner()" style="cursor:pointer;color:var(--text3)">✕</span>
+  </div>
+
+  <div class="stats-bar">
+    <div class="stat-card">
+      <div class="stat-num" id="statTotal">0</div>
+      <div class="stat-label">Total</div>
+    </div>
+    <div class="stat-card done">
+      <div class="stat-num" id="statDone">0</div>
+      <div class="stat-label">Faites</div>
+    </div>
+    <div class="stat-card late">
+      <div class="stat-num" id="statLate">0</div>
+      <div class="stat-label">En retard</div>
+    </div>
+    <div class="stat-card filter-card">
+      <select id="freqSelect">
+        <option value="">Toutes</option>
+        <option value="J">Quotidien</option>
+        <option value="S">Hebdo</option>
+        <option value="M">Mensuel</option>
+        <option value="T">Trimestriel</option>
+        <option value="A">Annuel</option>
+      </select>
+    </div>
+  </div>
+
+  <main class="main" id="root"></main>
+
+  <div class="fab-container">
+    <button class="fab" onclick="openAddPiece()">+</button>
+  </div>
+
+</div><!-- /appScreen -->
+
+<!-- MODAL -->
+<div class="modal-overlay" id="modalOverlay" onclick="if(event.target===this)closeModal()">
+  <div class="modal">
+    <div class="modal-handle"></div>
+    <div class="modal-title" id="modalTitle"></div>
+    <div id="modalFields"></div>
+    <div class="modal-actions">
+      <button class="btn btn-secondary" onclick="closeModal()">Annuler</button>
+      <button class="btn btn-primary" onclick="saveModal()">Enregistrer</button>
+    </div>
+  </div>
+</div>
+
+<!-- TOAST -->
+<div class="toast" id="toast"></div>
+
+<script src="app.js"></script>
+</body>
+</html>
