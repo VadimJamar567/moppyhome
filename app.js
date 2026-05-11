@@ -314,6 +314,8 @@ async function initApp() {
       batch.set(PIECES().doc(piece.id), { ...piece, order: i });
     });
     await batch.commit();
+    // Cocher toutes les tâches par défaut
+    await checkAllTasksByDefault();
   }
 
   // Écoute temps réel — pièces
@@ -394,23 +396,73 @@ async function saveCheck(taskId, data) {
 }
 
 // ============================================================
+// INIT — COCHER TOUTES LES TÂCHES PAR DÉFAUT
+// ============================================================
+async function checkAllTasksByDefault() {
+  const batch = [];
+  const now = Date.now();
+  DEFAULT_DATA.forEach(piece => {
+    piece.elements.forEach(el => {
+      el.tasks.forEach(task => {
+        batch.push(CHECKS().doc(task.id).set({
+          doneAt: now,
+          doneBy: 'system',
+          doneByName: 'Initialisation',
+        }));
+      });
+    });
+  });
+  await Promise.all(batch);
+}
+
+// ============================================================
 // ACTIONS
 // ============================================================
 async function toggleTask(pieceId, elId, taskId) {
+  const piece = pieces.find(p => p.id === pieceId);
+  const el    = piece?.elements.find(e => e.id === elId);
+  const task  = el?.tasks.find(t => t.id === taskId);
+
   if (checks[taskId]) {
+    // Décocher manuellement
     await saveCheck(taskId, null);
   } else {
+    // Cocher = tâche effectuée
     const profile = getProfile(currentUser.email);
     await saveCheck(taskId, {
-      doneAt: Date.now(),
-      doneBy: currentUser.email,
+      doneAt:     Date.now(),
+      doneBy:     currentUser.email,
       doneByName: profile.name,
     });
-    // Notifier l'autre utilisateur si la tâche est hebdo+
-    const piece = pieces.find(p => p.id === pieceId);
-    const el = piece?.elements.find(e => e.id === elId);
-    const task = el?.tasks.find(t => t.id === taskId);
-    if (task && task.freq !== 'J') {
+
+    if (!task) return;
+
+    // Notif croisée : si la tâche est assignée à l'autre personne
+    const userKey = currentUser.email.toLowerCase().includes('lorinda') ? 'L' : 'V';
+    if (task.assignee !== 'both' && task.assignee !== userKey) {
+      // L'autre a fait ma tâche — envoyer une notif locale
+      const doerName = profile.name;
+      const assigneeName = task.assignee === 'V' ? 'Vadim' : 'Lorinda';
+      let msg = '';
+      if (task.assignee === 'V') {
+        msg = `🍫 ${doerName} a fait ta tâche "${task.name}" — n'oublie pas les chocolats !`;
+      } else {
+        msg = `💐 ${doerName} a fait ta tâche "${task.name}" — pense à le remercier !`;
+      }
+      // Stocker la notif croisée dans Firestore pour que le cron/FCM la traite
+      await db.collection('crossNotifications').add({
+        message:    msg,
+        assignee:   task.assignee,
+        taskName:   task.name,
+        doneBy:     currentUser.email,
+        doneByName: doerName,
+        createdAt:  Date.now(),
+        sent:       false,
+      });
+    }
+
+    // Créer événement calendrier pour tâches hebdo et +
+    if (task.freq !== 'J') {
       await createCalendarEvent(piece, el, task);
     }
   }
@@ -644,19 +696,25 @@ async function registerFCMToken() {
  */
 async function createCalendarEvent(piece, el, task) {
   try {
-    const today = new Date().toISOString().split('T')[0];
+    const FREQ_DAYS_CAL = { S:7, M:30, T:90, A:365 };
+    const daysToAdd = FREQ_DAYS_CAL[task.freq] || 7;
+    const nextDate = new Date();
+    nextDate.setDate(nextDate.getDate() + daysToAdd);
+    const nextDateStr = nextDate.toISOString().split('T')[0];
+
     const event = {
-      summary: `🏠 ${piece.name} · ${task.name}`,
+      summary:     `🏠 ${piece.name} · ${task.name}`,
       description: `Tâche ménagère — ${el.name} — Fréquence : ${FREQ_LABELS[task.freq]}`,
-      date: today,
-      freq: task.freq,
-      taskId: task.id,
-      doneBy: currentUser.email,
-      createdAt: Date.now(),
-      status: 'pending', // sera traité par une Cloud Function à l'étape 3
+      date:        nextDateStr,  // prochaine échéance
+      freq:        task.freq,
+      taskId:      task.id,
+      doneBy:      currentUser.email,
+      doneByName:  getProfile(currentUser.email).name,
+      assignee:    task.assignee,
+      createdAt:   Date.now(),
+      status:      'pending',
     };
     await db.collection('calendarEvents').add(event);
-    console.log('[Calendrier] Événement créé en attente :', event.summary);
   } catch(e) {
     console.warn('Calendar event error:', e);
   }
