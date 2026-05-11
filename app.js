@@ -701,7 +701,7 @@ async function registerFCMToken() {
       toast('🔔 Notifications activées !');
     } else {
       console.warn('[FCM] Pas de token obtenu');
-      toast('Impossible d'activer les notifications');
+      toast("Impossible d'activer les notifications");
     }
   } catch(e) {
     console.warn('[FCM] Erreur:', e.message);
