@@ -646,10 +646,21 @@ async function initNotifications() {
   const perm = Notification?.permission;
   if (perm === 'granted') {
     await registerFCMToken();
-  } else if (perm !== 'denied') {
+  } else if (perm === 'default') {
     setTimeout(() => {
       document.getElementById('notifBanner').classList.remove('hidden');
-    }, 2000);
+    }, 1500);
+  }
+  // Sur iOS, même si permission accordée, montrer le bouton si pas de token encore
+  checkTokenRegistered();
+}
+
+async function checkTokenRegistered() {
+  if (!currentUser) return;
+  const snap = await db.collection('fcmTokens').doc(currentUser.uid).get();
+  if (!snap.exists) {
+    // Pas encore de token — montrer la bannière pour forcer l'enregistrement
+    document.getElementById('notifBanner').classList.remove('hidden');
   }
 }
 
@@ -670,22 +681,31 @@ function dismissNotifBanner() {
 
 async function registerFCMToken() {
   try {
+    if (!('Notification' in window)) {
+      toast('Les notifications ne sont pas supportées sur ce navigateur');
+      return;
+    }
     const messaging = firebase.messaging();
-    // VAPID key à remplacer par la tienne depuis Firebase Console
-    // Console Firebase > Paramètres du projet > Cloud Messaging > Certificats web push
     const token = await messaging.getToken({
-      vapidKey: 'BCFBZIEkMQO3TWd_5_YGNcd7GkAxy17jrzjQ-D-8XZl4J4CBHiDQUg_rGr-kvkk2qWTiCglGlKQSWtEpGBMTXVE'
+      vapidKey: 'BCFBZIEkMQO3TWd_5_YGNcd7GkAxy17jrzjQ-D-8XZl4J4CBHiDQUg_rGr-kvkk2qWTiCglGlKQSWtEpGBMTXVE',
+      serviceWorkerRegistration: await navigator.serviceWorker.ready,
     });
     if (token && currentUser) {
-      // Stocker le token FCM dans Firestore pour pouvoir envoyer des notifs push
       await db.collection('fcmTokens').doc(currentUser.uid).set({
         token,
         email: currentUser.email,
         updatedAt: Date.now(),
       });
+      console.log('[FCM] Token enregistré avec succès');
+      document.getElementById('notifBanner').classList.add('hidden');
+      toast('🔔 Notifications activées !');
+    } else {
+      console.warn('[FCM] Pas de token obtenu');
+      toast('Impossible d'activer les notifications');
     }
   } catch(e) {
-    console.warn('FCM token error:', e);
+    console.warn('[FCM] Erreur:', e.message);
+    toast('Erreur notifications : ' + e.message);
   }
 }
 
