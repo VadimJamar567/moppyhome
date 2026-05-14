@@ -70,6 +70,9 @@
     <span onclick="event.stopPropagation();dismissNotifBanner()" style="cursor:pointer;color:var(--text3)">✕</span>
   </div>
 
+  <!-- Barre de modes de vue -->
+  <div class="view-mode-bar" id="viewModeBar"></div>
+
   <div class="stats-bar">
     <div class="stat-card">
       <div class="stat-num" id="statTotal">0</div>
@@ -81,7 +84,7 @@
     </div>
     <div class="stat-card late">
       <div class="stat-num" id="statLate">0</div>
-      <div class="stat-label">En retard</div>
+      <div class="stat-label">À faire</div>
     </div>
     <div class="stat-card filter-card">
       <select id="freqSelect">
