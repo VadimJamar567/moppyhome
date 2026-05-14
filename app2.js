@@ -324,6 +324,7 @@ async function initApp() {
     pieces = snap.docs.map(d => d.data()).sort((a, b) => (a.order ?? 999) - (b.order ?? 999));
     console.log('[onSnapshot] pièces reçues:', pieces.length, pieces.map(p => p.name + '(' + (p.elements||[]).length + 'el)'));
     buildFilters();
+    buildViewModeBar();
     render();
   }, err => {
     console.error('[onSnapshot] erreur pièces:', err);
@@ -367,6 +368,7 @@ async function savePiece(piece) {
     pieces.push({ ...data });
   }
   buildFilters();
+  buildViewModeBar();
   render();
 }
 
@@ -767,6 +769,9 @@ function setViewMode(mode) {
 function buildViewModeBar() {
   const bar = document.getElementById('viewModeBar');
   if (!bar) return;
+  // Ne regénérer que si nécessaire (évite les flashs)
+  const current = bar.querySelector('.active')?.dataset?.mode;
+  if (current === ui.viewMode && bar.children.length === 3) return;
   bar.innerHTML = `
     <button class="view-btn${ui.viewMode === 'todo' ? ' active' : ''}" data-mode="todo" onclick="setViewMode('todo')">À faire</button>
     <button class="view-btn${ui.viewMode === 'all' ? ' active' : ''}" data-mode="all" onclick="setViewMode('all')">Tout</button>
