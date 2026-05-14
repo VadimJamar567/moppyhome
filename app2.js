@@ -626,8 +626,14 @@ function render() {
   let html = '';
 
   if (mode === 'all') {
-    // Grouper par pièce
+    // Grouper par pièce — inclure toutes les pièces visibles même sans tâches
     const byPiece = {};
+    // D'abord initialiser toutes les pièces visibles
+    pieces.forEach(piece => {
+      if (activeRoom && activeRoom !== piece.id) return;
+      byPiece[piece.id] = { piece, els: {} };
+    });
+    // Ensuite remplir avec les tâches filtrées
     filtered.forEach(({piece, el, task}) => {
       if (!byPiece[piece.id]) byPiece[piece.id] = { piece, els: {} };
       if (!byPiece[piece.id].els[el.id]) byPiece[piece.id].els[el.id] = { el, tasks: [] };
