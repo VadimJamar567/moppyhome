@@ -695,6 +695,41 @@ function render() {
     // Tout est fait !
     html = renderAllDoneScreen();
 
+  } else if (mode === 'all' && filtered.length === 0) {
+    // Pièce sélectionnée mais sans tâches — afficher quand même la structure
+    const piece = pieces.find(p => p.id === activeRoom);
+    if (piece) {
+      let pieceHtml = '';
+      (piece.elements||[]).forEach(el => {
+        pieceHtml += `<div class="element-group">
+          <div class="element-label">
+            <span class="element-label-text">${el.name}</span>
+            <div class="element-actions">
+              <button class="btn-icon sm" onclick="openAddTask('${piece.id}','${el.id}')">+ tâche</button>
+              <button class="btn-icon danger" onclick="deleteElement('${piece.id}','${el.id}')">✕</button>
+            </div>
+          </div>
+          <div style="padding:0.5rem 1rem;font-size:0.75rem;color:var(--text3)">Aucune tâche</div>
+        </div>`;
+      });
+      html = `<div class="piece-card">
+        <div class="piece-header" onclick="toggleCollapse('${piece.id}')">
+          <div class="piece-icon-wrap">${piece.icon}</div>
+          <span class="piece-name">${piece.name}</span>
+          <div class="piece-actions">
+            <span class="piece-count">0/0</span>
+            <button class="btn-icon" onclick="event.stopPropagation();openAddElement('${piece.id}')">+</button>
+            <button class="btn-icon danger" onclick="event.stopPropagation();deletePiece('${piece.id}')">✕</button>
+            <span class="piece-chevron open">⌄</span>
+          </div>
+        </div>
+        <div class="progress-bar"><div class="progress-fill" style="width:0%"></div></div>
+        ${pieceHtml || '<div style="padding:1rem;font-size:0.8rem;color:var(--text3)">Aucun élément — clique + pour en ajouter</div>'}
+      </div>`;
+    } else {
+      html = '<div class="empty">Aucune tâche trouvée</div>';
+    }
+
   } else {
     // Liste plate pour todo et upcoming
     filtered.forEach(({piece, el, task}) => {
