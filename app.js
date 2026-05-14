@@ -222,6 +222,7 @@ let ui = {
   activeFilter: '',
   searchQ: '',
   freqFilter: '',
+  viewMode: 'todo',   // 'todo' = à faire | 'all' = tout | 'upcoming' = à venir
   collapsed: {},
 };
 
@@ -344,6 +345,8 @@ async function initApp() {
     ui.freqFilter = e.target.value; render();
   });
 
+  buildViewModeBar();
+
   // Notifications
   initNotifications();
 
@@ -418,54 +421,59 @@ async function checkAllTasksByDefault() {
 // ============================================================
 // ACTIONS
 // ============================================================
-async function toggleTask(pieceId, elId, taskId) {
-  const piece = pieces.find(p => p.id === pieceId);
-  const el    = piece?.elements.find(e => e.id === elId);
-  const task  = el?.tasks.find(t => t.id === taskId);
+async function markTaskDone(pieceId, elId, taskId) {
+  const piece   = pieces.find(p => p.id === pieceId);
+  const el      = piece?.elements.find(e => e.id === elId);
+  const task    = el?.tasks.find(t => t.id === taskId);
+  const profile = getProfile(currentUser.email);
+  const now     = Date.now();
 
-  if (checks[taskId]) {
-    // Décocher manuellement
-    await saveCheck(taskId, null);
-  } else {
-    // Cocher = tâche effectuée
-    const profile = getProfile(currentUser.email);
-    await saveCheck(taskId, {
-      doneAt:     Date.now(),
+  // Feedback visuel immédiat
+  const row = document.querySelector(`[data-task-id="${taskId}"]`);
+  if (row) {
+    row.classList.add('task-completing');
+    setTimeout(() => row.classList.remove('task-completing'), 600);
+  }
+  toast('✓ Fait !');
+
+  // Enregistrer le check (repart toujours de maintenant)
+  await saveCheck(taskId, {
+    doneAt:     now,
+    doneBy:     currentUser.email,
+    doneByName: profile.name,
+  });
+
+  if (!task) return;
+
+  // Notif croisée si mauvais assigné
+  const userKey = currentUser.email.toLowerCase().includes('lorinda') ? 'L' : 'V';
+  if (task.assignee !== 'both' && task.assignee !== userKey) {
+    const msg = task.assignee === 'V'
+      ? `🍫 ${profile.name} a fait ta tâche "${task.name}" — n'oublie pas les chocolats !`
+      : `💐 ${profile.name} a fait ta tâche "${task.name}" — pense à le remercier !`;
+    await db.collection('crossNotifications').add({
+      message:    msg,
+      assignee:   task.assignee,
+      taskName:   task.name,
       doneBy:     currentUser.email,
       doneByName: profile.name,
+      createdAt:  now,
+      sent:       false,
     });
-
-    if (!task) return;
-
-    // Notif croisée : si la tâche est assignée à l'autre personne
-    const userKey = currentUser.email.toLowerCase().includes('lorinda') ? 'L' : 'V';
-    if (task.assignee !== 'both' && task.assignee !== userKey) {
-      // L'autre a fait ma tâche — envoyer une notif locale
-      const doerName = profile.name;
-      const assigneeName = task.assignee === 'V' ? 'Vadim' : 'Lorinda';
-      let msg = '';
-      if (task.assignee === 'V') {
-        msg = `🍫 ${doerName} a fait ta tâche "${task.name}" — n'oublie pas les chocolats !`;
-      } else {
-        msg = `💐 ${doerName} a fait ta tâche "${task.name}" — pense à le remercier !`;
-      }
-      // Stocker la notif croisée dans Firestore pour que le cron/FCM la traite
-      await db.collection('crossNotifications').add({
-        message:    msg,
-        assignee:   task.assignee,
-        taskName:   task.name,
-        doneBy:     currentUser.email,
-        doneByName: doerName,
-        createdAt:  Date.now(),
-        sent:       false,
-      });
-    }
-
-    // Créer événement calendrier pour tâches hebdo et +
-    if (task.freq !== 'J') {
-      await createCalendarEvent(piece, el, task);
-    }
   }
+
+  // Événement calendrier pour tâches hebdo et +
+  if (task.freq !== 'J') {
+    await createCalendarEvent(piece, el, task);
+  }
+
+  // Vérifier si toutes les tâches sont maintenant à jour → feux d'artifice
+  setTimeout(() => checkAllDone(), 500);
+}
+
+// Gardé pour compatibilité (plus utilisé en tap normal)
+async function toggleTask(pieceId, elId, taskId) {
+  await markTaskDone(pieceId, elId, taskId);
 }
 
 async function toggleCollapse(id) {
@@ -510,12 +518,35 @@ async function deleteTask(pieceId, elId, taskId) {
 // ============================================================
 function uid() { return '_' + Math.random().toString(36).substr(2, 9); }
 function daysSince(ts) { if (!ts) return null; return Math.floor((Date.now() - ts) / 86400000); }
-function isLate(task) {
+
+// Une tâche est "à faire" si pas de check OU si le check est expiré
+function isTodo(task) {
   const c = checks[task.id];
-  if (!c) return false;
-  return daysSince(c.doneAt) > FREQ_DAYS[task.freq];
+  if (!c) return true;
+  return daysSince(c.doneAt) >= FREQ_DAYS[task.freq];
 }
-function metaText(task) {
+
+// Jours restants avant que la tâche soit à refaire
+function daysUntilDue(task) {
+  const c = checks[task.id];
+  if (!c) return 0;
+  const elapsed = daysSince(c.doneAt);
+  return Math.max(0, FREQ_DAYS[task.freq] - elapsed);
+}
+
+// Depuis combien de temps la tâche est à faire
+function todoSinceText(task) {
+  const c = checks[task.id];
+  if (!c) return 'À faire (jamais faite)';
+  const overdue = daysSince(c.doneAt) - FREQ_DAYS[task.freq];
+  if (overdue <= 0) return '';
+  if (overdue === 0) return 'À faire depuis aujourd'hui';
+  if (overdue === 1) return 'À faire depuis hier';
+  return `À faire depuis ${overdue} jour${overdue > 1 ? 's' : ''}`;
+}
+
+// Texte "fait il y a X" pour le mode "tout"
+function doneText(task) {
   const c = checks[task.id];
   if (!c) return '';
   const days = daysSince(c.doneAt);
@@ -525,106 +556,222 @@ function metaText(task) {
   return `Fait il y a ${days}j par ${by}`;
 }
 
+// Texte "dans X jours" pour le mode "à venir"
+function upcomingText(task) {
+  const days = daysUntilDue(task);
+  if (days === 0) return 'À faire aujourd'hui';
+  if (days === 1) return 'Dans 1 jour';
+  return `Dans ${days} jours`;
+}
+
+// Vérifier si toutes les tâches sont faites → feux d'artifice
+function checkAllDone() {
+  let hasTodo = false;
+  pieces.forEach(piece => {
+    (piece.elements||[]).forEach(el => {
+      (el.tasks||[]).forEach(task => {
+        if (isTodo(task)) hasTodo = true;
+      });
+    });
+  });
+  if (!hasTodo) showCelebration();
+}
+
 // ============================================================
 // RENDER
 // ============================================================
 function render() {
-  const q = ui.searchQ.toLowerCase();
-  const freqF = ui.freqFilter;
+  const q         = ui.searchQ.toLowerCase();
+  const freqF     = ui.freqFilter;
   const activeRoom = ui.activeFilter;
+  const mode      = ui.viewMode; // 'todo' | 'all' | 'upcoming'
 
-  let totalCount = 0, doneCount = 0, lateCount = 0;
-  let html = '';
-
+  // Collecter toutes les tâches à afficher
+  let allTasks = [];
   pieces.forEach(piece => {
     if (activeRoom && activeRoom !== piece.id) return;
-
-    let pieceHtml = '';
-    let pieceTotal = 0, pieceDone = 0;
-
-    (piece.elements || []).forEach(el => {
-      let elHtml = '';
-      (el.tasks || []).forEach(task => {
+    (piece.elements||[]).forEach(el => {
+      (el.tasks||[]).forEach(task => {
         if (freqF && task.freq !== freqF) return;
         if (q && !task.name.toLowerCase().includes(q) && !el.name.toLowerCase().includes(q) && !piece.name.toLowerCase().includes(q)) return;
+        allTasks.push({ piece, el, task });
+      });
+    });
+  });
 
-        const check = checks[task.id];
-        const done = !!check;
-        const late = isLate(task);
-        const meta = metaText(task);
+  const totalCount = allTasks.length;
+  const doneCount  = allTasks.filter(({task}) => !isTodo(task)).length;
+  const todoCount  = allTasks.filter(({task}) => isTodo(task)).length;
 
-        pieceTotal++;
-        if (done) pieceDone++;
-        if (late) lateCount++;
+  // Filtrer selon le mode
+  let filtered = allTasks;
+  if (mode === 'todo') {
+    filtered = allTasks.filter(({task}) => isTodo(task));
+    // Trier par ancienneté (plus longtemps à faire en premier)
+    filtered.sort((a, b) => {
+      const daysA = daysSince(checks[a.task.id]?.doneAt) ?? 9999;
+      const daysB = daysSince(checks[b.task.id]?.doneAt) ?? 9999;
+      return daysB - daysA;
+    });
+  } else if (mode === 'upcoming') {
+    filtered = allTasks.filter(({task}) => !isTodo(task));
+    // Trier par échéance la plus proche en premier
+    filtered.sort((a, b) => daysUntilDue(a.task) - daysUntilDue(b.task));
+  }
 
-        const assigneeClass = task.assignee === 'both' ? 'assignee-both' : `assignee-${task.assignee}`;
-        const assigneeLabel = task.assignee === 'both' ? '★' : task.assignee;
+  // Mode "tout" → grouper par pièce comme avant
+  // Modes 'todo' et 'upcoming' → liste plate triée
+  let html = '';
 
-        elHtml += `<div class="task-row${done ? ' done' : ''}" onclick="toggleTask('${piece.id}','${el.id}','${task.id}')">
-          <div class="task-check"><span class="task-check-icon">✓</span></div>
-          <div class="task-info">
-            <div class="task-name">${task.name}</div>
-            ${meta ? `<div class="task-meta${late ? ' late' : ''}">${meta}${late ? ' · EN RETARD' : ''}</div>` : ''}
+  if (mode === 'all') {
+    // Grouper par pièce
+    const byPiece = {};
+    filtered.forEach(({piece, el, task}) => {
+      if (!byPiece[piece.id]) byPiece[piece.id] = { piece, els: {} };
+      if (!byPiece[piece.id].els[el.id]) byPiece[piece.id].els[el.id] = { el, tasks: [] };
+      byPiece[piece.id].els[el.id].tasks.push(task);
+    });
+
+    Object.values(byPiece).forEach(({ piece, els }) => {
+      let pieceHtml = '';
+      let pieceTotal = 0, pieceDone = 0;
+
+      Object.values(els).forEach(({ el, tasks }) => {
+        let elHtml = '';
+        tasks.forEach(task => {
+          const todo = isTodo(task);
+          pieceTotal++;
+          if (!todo) pieceDone++;
+          elHtml += renderTaskRow(piece, el, task, 'all');
+        });
+        pieceHtml += `<div class="element-group">
+          <div class="element-label">
+            <span class="element-label-text">${el.name}</span>
+            <div class="element-actions">
+              <button class="btn-icon sm" onclick="openAddTask('${piece.id}','${el.id}')">+ tâche</button>
+              <button class="btn-icon danger" onclick="deleteElement('${piece.id}','${el.id}')">✕</button>
+            </div>
           </div>
-          <div class="task-right">
-            <span class="freq-badge freq-${task.freq}">${FREQ_LABELS[task.freq]}</span>
-            <span class="assignee-badge ${assigneeClass}">${assigneeLabel}</span>
-            <button class="btn-icon" onclick="event.stopPropagation();openEditTask('${piece.id}','${el.id}','${task.id}')" title="Modifier">✎</button>
-            <button class="btn-icon danger" onclick="event.stopPropagation();deleteTask('${piece.id}','${el.id}','${task.id}')" title="Supprimer">✕</button>
-          </div>
+          ${elHtml}
         </div>`;
       });
 
-      // Toujours afficher l'élément, même sans tâches
-      pieceHtml += `<div class="element-group">
-        <div class="element-label">
-          <span class="element-label-text">${el.name}</span>
-          <div class="element-actions">
-            <button class="btn-icon sm" onclick="openAddTask('${piece.id}','${el.id}')">+ tâche</button>
-            <button class="btn-icon danger" onclick="deleteElement('${piece.id}','${el.id}')">✕</button>
+      // Ajouter éléments sans tâches visibles
+      (piece.elements||[]).forEach(el => {
+        if (byPiece[piece.id]?.els[el.id]) return;
+        pieceHtml += `<div class="element-group">
+          <div class="element-label">
+            <span class="element-label-text">${el.name}</span>
+            <div class="element-actions">
+              <button class="btn-icon sm" onclick="openAddTask('${piece.id}','${el.id}')">+ tâche</button>
+              <button class="btn-icon danger" onclick="deleteElement('${piece.id}','${el.id}')">✕</button>
+            </div>
+          </div>
+          <div style="padding:0.5rem 1rem;font-size:0.75rem;color:var(--text3)">Aucune tâche</div>
+        </div>`;
+      });
+
+      const pct    = pieceTotal > 0 ? Math.round((pieceDone / pieceTotal) * 100) : 0;
+      const isOpen = !ui.collapsed[piece.id];
+      html += `<div class="piece-card">
+        <div class="piece-header" onclick="toggleCollapse('${piece.id}')">
+          <div class="piece-icon-wrap">${piece.icon}</div>
+          <span class="piece-name">${piece.name}</span>
+          <div class="piece-actions">
+            <span class="piece-count">${pieceDone}/${pieceTotal}</span>
+            <button class="btn-icon" onclick="event.stopPropagation();openAddElement('${piece.id}')">+</button>
+            <button class="btn-icon danger" onclick="event.stopPropagation();deletePiece('${piece.id}')">✕</button>
+            <span class="piece-chevron${isOpen ? ' open' : ''}">⌄</span>
           </div>
         </div>
-        ${elHtml || '<div style="padding:0.5rem 1rem;font-size:0.75rem;color:var(--text3)">Aucune tâche — clique + tâche pour en ajouter</div>'}
+        <div class="progress-bar"><div class="progress-fill" style="width:${pct}%"></div></div>
+        ${isOpen ? pieceHtml : ''}
       </div>`;
     });
 
-    totalCount += pieceTotal;
-    doneCount  += pieceDone;
+  } else if (mode === 'todo' && filtered.length === 0) {
+    // Tout est fait !
+    html = renderAllDoneScreen();
 
-    const pct = pieceTotal > 0 ? Math.round((pieceDone / pieceTotal) * 100) : 0;
-    const isOpen = !ui.collapsed[piece.id]; // true dans collapsed = fermé
-
-    html += `<div class="piece-card">
-      <div class="piece-header" onclick="toggleCollapse('${piece.id}')">
-        <div class="piece-icon-wrap">${piece.icon}</div>
-        <span class="piece-name">${piece.name}</span>
-        <div class="piece-actions">
-          <span class="piece-count">${pieceDone}/${pieceTotal}</span>
-          <button class="btn-icon" onclick="event.stopPropagation();openAddElement('${piece.id}')">+</button>
-          <button class="btn-icon danger" onclick="event.stopPropagation();deletePiece('${piece.id}')">✕</button>
-          <span class="piece-chevron${isOpen ? ' open' : ''}">⌄</span>
-        </div>
-      </div>
-      <div class="progress-bar"><div class="progress-fill" style="width:${pct}%"></div></div>
-      ${isOpen ? pieceHtml : ''}
-    </div>`;
-  });
+  } else {
+    // Liste plate pour todo et upcoming
+    filtered.forEach(({piece, el, task}) => {
+      html += renderTaskRow(piece, el, task, mode);
+    });
+  }
 
   const scrollY = window.scrollY;
   document.getElementById('root').innerHTML = html || '<div class="empty">Aucune tâche trouvée</div>';
   document.getElementById('statTotal').textContent = totalCount;
   document.getElementById('statDone').textContent  = doneCount;
-  document.getElementById('statLate').textContent  = lateCount;
+  document.getElementById('statLate').textContent  = todoCount;
   window.scrollTo(0, scrollY);
+}
+
+function renderTaskRow(piece, el, task, mode) {
+  const todo           = isTodo(task);
+  const assigneeClass  = task.assignee === 'both' ? 'assignee-both' : `assignee-${task.assignee}`;
+  const assigneeLabel  = task.assignee === 'both' ? '★' : task.assignee;
+  let meta = '';
+  if (mode === 'todo')     meta = todoSinceText(task);
+  else if (mode === 'upcoming') meta = upcomingText(task);
+  else meta = doneText(task);
+
+  return `<div class="task-row${todo ? '' : ' done'}" data-task-id="${task.id}" onclick="markTaskDone('${piece.id}','${el.id}','${task.id}')">
+    <div class="task-check"><span class="task-check-icon">✓</span></div>
+    <div class="task-info">
+      <div class="task-name">${task.name}</div>
+      ${meta ? `<div class="task-meta">${meta}</div>` : ''}
+      <div class="task-piece-label">${piece.name} · ${el.name}</div>
+    </div>
+    <div class="task-right">
+      <span class="freq-badge freq-${task.freq}">${FREQ_LABELS[task.freq]}</span>
+      <span class="assignee-badge ${assigneeClass}">${assigneeLabel}</span>
+      <button class="btn-icon" onclick="event.stopPropagation();openEditTask('${piece.id}','${el.id}','${task.id}')" title="Modifier">✎</button>
+      <button class="btn-icon danger" onclick="event.stopPropagation();deleteTask('${piece.id}','${el.id}','${task.id}')" title="Supprimer">✕</button>
+    </div>
+  </div>`;
+}
+
+function renderAllDoneScreen() {
+  return `<div class="all-done-screen">
+    <div class="fireworks" id="fireworks"></div>
+    <div class="all-done-emoji">🎉</div>
+    <h2 class="all-done-title">Tout est à jour !</h2>
+    <p class="all-done-sub">Bravo, vous avez tout géré. Profitez de votre soirée !</p>
+    <button class="btn btn-primary" style="max-width:280px;margin:0 auto" onclick="setViewMode('upcoming')">
+      📅 À faire prochainement
+    </button>
+  </div>`;
 }
 
 function buildFilters() {
   const bar = document.getElementById('filterBar');
+  // Filtres de pièces
   let html = `<button class="filter-pill${!ui.activeFilter ? ' active' : ''}" onclick="setFilter('')">Tout</button>`;
   pieces.forEach(p => {
     html += `<button class="filter-pill${ui.activeFilter === p.id ? ' active' : ''}" onclick="setFilter('${p.id}')">${p.name}</button>`;
   });
   bar.innerHTML = html;
+}
+
+function setViewMode(mode) {
+  ui.viewMode = mode;
+  // Mettre à jour les boutons de vue
+  document.querySelectorAll('.view-btn').forEach(b => {
+    b.classList.toggle('active', b.dataset.mode === mode);
+  });
+  render();
+}
+
+function buildViewModeBar() {
+  const bar = document.getElementById('viewModeBar');
+  if (!bar) return;
+  bar.innerHTML = `
+    <button class="view-btn${ui.viewMode === 'todo' ? ' active' : ''}" data-mode="todo" onclick="setViewMode('todo')">À faire</button>
+    <button class="view-btn${ui.viewMode === 'all' ? ' active' : ''}" data-mode="all" onclick="setViewMode('all')">Tout</button>
+    <button class="view-btn${ui.viewMode === 'upcoming' ? ' active' : ''}" data-mode="upcoming" onclick="setViewMode('upcoming')">À venir</button>
+  `;
 }
 
 function updateUserUI() {
@@ -738,6 +885,61 @@ async function createCalendarEvent(piece, el, task) {
   } catch(e) {
     console.warn('Calendar event error:', e);
   }
+}
+
+// ============================================================
+// CÉLÉBRATION — FEUX D'ARTIFICE
+// ============================================================
+function showCelebration() {
+  // Lancer les feux d'artifice via canvas
+  const existing = document.getElementById('celebrationCanvas');
+  if (existing) existing.remove();
+
+  const canvas = document.createElement('canvas');
+  canvas.id = 'celebrationCanvas';
+  canvas.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:9999;';
+  canvas.width = window.innerWidth;
+  canvas.height = window.innerHeight;
+  document.body.appendChild(canvas);
+
+  const ctx = canvas.getContext('2d');
+  const particles = [];
+  const colors = ['#2f54eb','#eb2f96','#52c41a','#fa8c16','#fadb14','#f5222d'];
+
+  for (let i = 0; i < 120; i++) {
+    particles.push({
+      x: Math.random() * canvas.width,
+      y: Math.random() * canvas.height * 0.5,
+      vx: (Math.random() - 0.5) * 6,
+      vy: (Math.random() - 0.5) * 6 - 3,
+      color: colors[Math.floor(Math.random() * colors.length)],
+      size: Math.random() * 6 + 3,
+      life: 1,
+      decay: Math.random() * 0.015 + 0.008,
+    });
+  }
+
+  function animate() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    particles.forEach((p, i) => {
+      p.x  += p.vx;
+      p.y  += p.vy;
+      p.vy += 0.12; // gravité
+      p.life -= p.decay;
+      ctx.globalAlpha = Math.max(0, p.life);
+      ctx.fillStyle   = p.color;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+      ctx.fill();
+    });
+    const alive = particles.filter(p => p.life > 0);
+    if (alive.length > 0) {
+      requestAnimationFrame(animate);
+    } else {
+      canvas.remove();
+    }
+  }
+  animate();
 }
 
 // ============================================================
