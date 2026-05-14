@@ -1,13 +1,13 @@
 // sw.js — Service Worker MoppyHome
-// Gère le cache offline + les notifications push Firebase (FCM)
+// Ne cache PAS index.html pour éviter les problèmes de mise à jour
 
 importScripts('https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js');
 importScripts('https://www.gstatic.com/firebasejs/10.12.0/firebase-messaging-compat.js');
 
-const CACHE_NAME = 'moppyhome-v2';
-const ASSETS = ['/', '/index.html', '/style.css', '/app.js', '/manifest.json'];
+const CACHE_NAME = 'moppyhome-v3';
+// On exclut index.html du cache pour toujours avoir la dernière version
+const ASSETS = ['/style.css', '/app2.js', '/manifest.json'];
 
-// ── CACHE OFFLINE ──
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(CACHE_NAME).then(c => c.addAll(ASSETS)));
   self.skipWaiting();
@@ -21,12 +21,17 @@ self.addEventListener('activate', e => {
 });
 
 self.addEventListener('fetch', e => {
+  // Ne jamais cacher index.html — toujours aller sur le réseau
+  if (e.request.url.includes('index.html') || e.request.mode === 'navigate') {
+    e.respondWith(fetch(e.request).catch(() => caches.match('/index.html')));
+    return;
+  }
   e.respondWith(
-    caches.match(e.request).then(cached => cached || fetch(e.request).catch(() => caches.match('/index.html')))
+    caches.match(e.request).then(cached => cached || fetch(e.request))
   );
 });
 
-// ── FIREBASE MESSAGING (notifications push background) ──
+// Firebase Messaging
 firebase.initializeApp({
   apiKey: "AIzaSyAgpZQE7Nyik7q3Gff-KoY4YbbbL25oawE",
   authDomain: "moppyhome-cfc28.firebaseapp.com",
@@ -38,19 +43,16 @@ firebase.initializeApp({
 
 const messaging = firebase.messaging();
 
-// Notification reçue quand l'app est en arrière-plan
 messaging.onBackgroundMessage(payload => {
-  const { title, body, icon } = payload.notification;
-  self.registration.showNotification(title, {
-    body,
-    icon: icon || '/icons/icon-192.png',
-    badge: '/icons/icon-192.png',
+  const { title, body } = payload.notification || {};
+  self.registration.showNotification(title || '🏠 MoppyHome', {
+    body: body || '',
+    icon: '/icon-192.png',
+    badge: '/icon-192.png',
     vibrate: [200, 100, 200],
-    data: payload.data,
   });
 });
 
-// Clic sur notification → ouvre l'app
 self.addEventListener('notificationclick', e => {
   e.notification.close();
   e.waitUntil(clients.openWindow('/'));
