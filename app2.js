@@ -537,10 +537,10 @@ function daysUntilDue(task) {
 // Depuis combien de temps la tâche est à faire
 function todoSinceText(task) {
   const c = checks[task.id];
-  if (!c) return 'À faire (jamais faite)';
+  if (!c) return "À faire (jamais faite)";
   const overdue = daysSince(c.doneAt) - FREQ_DAYS[task.freq];
   if (overdue <= 0) return '';
-  if (overdue === 0) return 'À faire depuis aujourd'hui';
+  if (overdue === 0) return "À faire depuis aujourd'hui";
   if (overdue === 1) return 'À faire depuis hier';
   return `À faire depuis ${overdue} jour${overdue > 1 ? 's' : ''}`;
 }
@@ -559,8 +559,8 @@ function doneText(task) {
 // Texte "dans X jours" pour le mode "à venir"
 function upcomingText(task) {
   const days = daysUntilDue(task);
-  if (days === 0) return 'À faire aujourd'hui';
-  if (days === 1) return 'Dans 1 jour';
+  if (days === 0) return "À faire aujourd'hui";
+  if (days === 1) return "Dans 1 jour";
   return `Dans ${days} jours`;
 }
 
